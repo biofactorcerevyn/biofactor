@@ -274,14 +274,14 @@ export const SalesDashboard: React.FC = () => {
             { key: 'actual', color: 'hsl(199, 89%, 48%)', name: 'Actual' },
           ]}
         />
-        <ChartCard
-          title="Regional Distribution"
-          subtitle="Sales by region %"
-          type="pie"
-          data={regionData}
-                    data={dynamicRegionData}
-          height={300}
-        />
+     <ChartCard
+  title="Regional Distribution"
+  subtitle="Sales by region %"
+  type="pie"
+  data={dynamicRegionData}
+  height={300}
+/>
+
       </div>
 
       {/* Product Performance */}
