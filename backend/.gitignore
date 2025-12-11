@@ -1,0 +1,13 @@
+# Supabase local development
+.env
+.env.local
+.env.*.local
+
+# Supabase CLI
+supabase/.branches/
+supabase/.temp/
+
+# Generated files
+node_modules/
+.DS_Store
+*.log

@@ -1,73 +1,129 @@
-# Welcome to your Lovable project
+# BioBactor Project Structure
 
-## Project info
+This project is organized into two main directories: **frontend** and **backend**.
 
-**URL**: https://lovable.dev/projects/cf9893c7-ab40-436c-a8b7-1253955d91fd
+## Directory Structure
 
-## How can I edit this code?
+```
+biofactor/
+├── frontend/                      # React/Vite frontend application
+│   ├── src/                       # React source code
+│   │   ├── components/            # React components
+│   │   ├── contexts/              # React context providers
+│   │   ├── hooks/                 # Custom React hooks
+│   │   ├── integrations/
+│   │   │   ├── sap/               # SAP integration
+│   │   │   └── supabase/          # Supabase client & types (frontend only)
+│   │   ├── lib/                   # Utility libraries
+│   │   ├── pages/                 # Page components
+│   │   └── ...                    # Other frontend assets
+│   ├── public/                    # Static assets
+│   ├── package.json               # Frontend dependencies
+│   ├── vite.config.ts             # Vite configuration
+│   ├── tailwind.config.ts         # Tailwind CSS configuration
+│   ├── tsconfig.json              # TypeScript configuration
+│   ├── .env                       # Frontend environment variables
+│   └── ...                        # Other frontend config files
+│
+└── backend/                       # Backend configuration & Supabase
+    ├── supabase/                  # Supabase project configuration
+    │   ├── config.toml            # Supabase project config
+    │   ├── migrations/            # SQL migration files
+    │   └── ...                    # Other Supabase files
+    └── .gitignore                 # Backend ignore rules
+```
 
-There are several ways of editing your application.
+## Running the Project
 
-**Use Lovable**
+### Frontend Development Server
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/cf9893c7-ab40-436c-a8b7-1253955d91fd) and start prompting.
+The frontend development server runs on its own port and serves the React/Vite application.
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
+cd frontend
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+This starts the Vite dev server. The server will be available at `http://localhost:8080` (or the next available port if 8080 is in use).
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Frontend Build
 
-**Use GitHub Codespaces**
+To create a production build:
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```bash
+cd frontend
+npm run build
+```
 
-## What technologies are used for this project?
+The built files will be in `frontend/dist/`.
 
-This project is built with:
+### Supabase CLI Commands
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Supabase CLI commands must be run from the `backend/supabase` directory:
 
-## How can I deploy this project?
+```bash
+cd backend/supabase
+npx supabase status
+npx supabase migration list
+npx supabase db pull
+npx supabase db push
+npx supabase start      # Start local development instance
+npx supabase stop       # Stop local development instance
+```
 
-Simply open [Lovable](https://lovable.dev/projects/cf9893c7-ab40-436c-a8b7-1253955d91fd) and click on Share -> Publish.
+Alternatively, you can use npx from any directory with the `--workdir` flag:
 
-## Can I connect a custom domain to my Lovable project?
+```bash
+npx supabase --workdir backend/supabase status
+```
 
-Yes, you can!
+## Environment Variables
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+### Frontend (.env in frontend/ directory)
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+The frontend requires Supabase credentials to connect to the backend:
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+VITE_SUPABASE_PROJECT_ID=your-project-id
+```
+
+These are Vite environment variables (prefixed with `VITE_`) and are available in frontend code via `import.meta.env`.
+
+### Backend (.env in backend/supabase/ directory, if needed)
+
+For local Supabase development, you can create environment files in `backend/supabase/`:
+
+```env
+SUPABASE_DB_PASSWORD=your-password
+```
+
+## Project Features
+
+- **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS + Shadcn/ui components
+- **State Management**: TanStack Query (React Query) for data fetching
+- **Database**: Supabase PostgreSQL with Row-Level Security
+- **Authentication**: Supabase Auth
+- **Styling**: Tailwind CSS with PostCSS
+- **Linting**: ESLint
+
+## Key Import Paths
+
+The frontend uses path aliases configured in `vite.config.ts`:
+
+- `@/` - Maps to `frontend/src/`
+- `@/components` - Component folder
+- `@/integrations/supabase/client` - Supabase client initialization
+- `@/hooks` - Custom React hooks
+- `@/contexts` - React context providers
+
+## Notes
+
+1. **Supabase Types**: TypeScript types for the Supabase database are generated in `frontend/src/integrations/supabase/types.ts`. Regenerate after schema changes using the Supabase CLI.
+
+2. **Migrations**: All database migrations are stored in `backend/supabase/migrations/`. Apply migrations using `npx supabase db push`.
+
+3. **RLS Policies**: Row-Level Security policies are defined in SQL migrations. Check the Supabase dashboard for policy configuration.
+
+4. **Frontend Build**: The frontend is a standalone SPA that communicates with Supabase via its REST/RealtimeAPI. No backend server is required beyond Supabase.
