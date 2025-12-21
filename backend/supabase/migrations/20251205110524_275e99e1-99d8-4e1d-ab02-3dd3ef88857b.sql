@@ -140,6 +140,7 @@ CREATE TABLE public.orders (
   discount_amount DECIMAL(12, 2) DEFAULT 0,
   tax_amount DECIMAL(12, 2) DEFAULT 0,
   net_amount DECIMAL(12, 2) DEFAULT 0,
+  net_amount DECIMAL(12, 2) DEFAULT 0,
   action TEXT,
   zone TEXT,
   area TEXT,
