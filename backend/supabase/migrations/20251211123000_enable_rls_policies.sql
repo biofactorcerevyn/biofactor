@@ -1,11 +1,28 @@
 -- Enable RLS
-alter table public.profiles enable row level security;
+ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
 alter table public.posts enable row level security;
 alter table public.comments enable row level security;
 
 -------------------------
 -- PROFILES POLICIES
 -------------------------
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY profiles_insert_any
+ON public.profiles
+FOR INSERT
+WITH CHECK (true);
+
+CREATE POLICY profiles_select_own
+ON public.profiles
+FOR SELECT
+USING (id = auth.uid());
+
+CREATE POLICY profiles_update_own
+ON public.profiles
+FOR UPDATE
+USING (id = auth.uid());
 
 drop policy if exists "profiles_insert_own" on public.profiles;
 create policy "profiles_insert_own"

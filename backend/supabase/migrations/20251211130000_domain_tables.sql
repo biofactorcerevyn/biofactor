@@ -219,17 +219,23 @@ create table if not exists public.leaves (
 );
 
 -- Farmers
-create table if not exists public.farmers (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  phone text,
-  state text,
-  district text,
-  village text,
-  crops jsonb,
-  dealer_id uuid references public.dealers (id) on delete set null,
-  farm_size_acres numeric,
-  created_at timestamptz default now()
+CREATE TABLE public.farmers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  age INTEGER,
+  phone TEXT,
+  village TEXT,
+  district TEXT,
+  state TEXT,
+  farm_size_acres DECIMAL(10, 2),
+  irrigation_type TEXT,
+  land_type TEXT,
+  soil_type TEXT,
+  crops JSONB NOT NULL DEFAULT '[]'::jsonb,
+  lat DOUBLE PRECISION,
+  lon DOUBLE PRECISION,
+  created_by UUID NOT NULL REFERENCES auth.users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Field visits
@@ -268,21 +274,24 @@ create table if not exists public.trials (
 );
 
 -- Campaigns
-create table if not exists public.campaigns (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  type text,
-  description text,
-  start_date date,
-  end_date date,
-  budget numeric,
-  spent numeric,
-  reach integer,
-  achieved numeric,
-  created_by uuid references auth.users (id) on delete set null,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
+CREATE TABLE IF NOT EXISTS public.campaigns (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'planned',
+  start_date DATE,
+  end_date DATE,
+  budget NUMERIC,
+  spent NUMERIC,
+  target NUMERIC,
+  achieved NUMERIC,
+  area TEXT,
+  campaign_run_by TEXT,
+  created_by UUID NOT NULL REFERENCES auth.users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
 
 -- Notifications
 create table if not exists public.notifications (

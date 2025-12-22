@@ -5,16 +5,16 @@
 create extension if not exists pgcrypto;
 
 -- Profiles table: one-to-one with auth.users (id = auth.users.id)
-create table if not exists public.profiles (
-  id uuid primary key references auth.users (id) on delete cascade,
-  username text,
-  full_name text,
-  avatar_url text,
-  website text,
-  bio text,
-  created_at timestamptz default now() not null,
-  updated_at timestamptz default now() not null,
-  deleted_at timestamptz
+CREATE TABLE public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  username TEXT,
+  full_name TEXT,
+  phone TEXT,
+  avatar_url TEXT,
+  department TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 create index if not exists profiles_created_at_idx on public.profiles (created_at);

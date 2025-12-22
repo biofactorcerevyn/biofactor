@@ -2,25 +2,28 @@
 -- Timestamp: 2025-12-11 12:35:00
 
 -- Function to create a profile record when a new auth user is created
-create or replace function public.on_auth_user_created()
-returns trigger
-language plpgsql
-as $$
-begin
-  -- Insert a profile record for the new user; if it exists, do nothing
-  insert into public.profiles (id, username, full_name, created_at)
-  values (new.id, coalesce(new.email, ''), coalesce(new.user_metadata->> 'full_name', ''), now())
-  on conflict (id) do nothing;
-  return new;
-end;
+CREATE OR REPLACE FUNCTION public.on_auth_user_created()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, created_at)
+  VALUES (NEW.id, NEW.email, now())
+  ON CONFLICT (id) DO NOTHING;
+
+  RETURN NEW;
+END;
 $$;
 
--- Trigger on auth.users to call the function after insert
--- Note: Supabase allows triggers on auth.users; this will run on signup
-drop trigger if exists auth_user_created on auth.users;
-create trigger auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.on_auth_user_created();
+
+DROP TRIGGER IF EXISTS auth_user_created ON auth.users;
+
+CREATE TRIGGER auth_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW
+EXECUTE FUNCTION public.on_auth_user_created();
+
 
 -- Function to update updated_at on modified rows for convenience
 create or replace function public.touch_updated_at()

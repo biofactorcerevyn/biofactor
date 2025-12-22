@@ -1,113 +1,99 @@
 import React, { useState } from 'react';
 import { CrudPage, Column } from '@/components/crud/CrudPage';
-import { useSupabaseQuery, useSupabaseInsert, useSupabaseUpdate, useSupabaseDelete } from '@/hooks/useSupabaseQuery';
+import {
+  useSupabaseQuery,
+  useSupabaseInsert,
+  useSupabaseUpdate,
+  useSupabaseDelete,
+} from '@/hooks/useSupabaseQuery';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
+
+/* =======================
+   Interface
+======================= */
 
 interface Campaign {
   id: string;
   name: string;
   type: string;
-  description: string | null;
-  status: string;
+  status: 'planned' | 'active' | 'paused' | 'completed';
   start_date: string | null;
   end_date: string | null;
   budget: number | null;
   spent: number | null;
   target: number | null;
   achieved: number | null;
-  reach: number | null;
-  area?: string | null;
-  campaign_run_by?: string | null;
+  area: string | null;
+  campaign_run_by: string | null;
   created_at: string;
 }
 
-const campaignTypes = ['Product Launch', 'Dealer Incentive', 'Farmer Demo', 'Brand Awareness', 'Seasonal Promotion', 'Digital Marketing'];
+/* =======================
+   Constants
+======================= */
+
+const campaignTypes = [
+  'Product Launch',
+  'Dealer Incentive',
+  'Farmer Demo',
+  'Brand Awareness',
+  'Seasonal Promotion',
+  'Digital Marketing',
+];
+
+/* =======================
+   Component
+======================= */
 
 export default function CampaignsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Campaign | null>(null);
+
   const [formData, setFormData] = useState({
     name: '',
     type: '',
-    description: '',
     status: 'planned',
     start_date: '',
     end_date: '',
-    budget: 0,
-    spent: 0,
-    target: 0,
-    achieved: 0,
-    reach: 0,
+    budget: '',
+    spent: '',
+    target: '',
+    achieved: '',
     area: '',
     campaign_run_by: '',
   });
 
-  const { data: campaigns = [], isLoading, refetch } = useSupabaseQuery<Campaign>('campaigns', {
-    orderBy: { column: 'created_at', ascending: false }
-  });
+  const { data: campaigns = [], isLoading, refetch } =
+    useSupabaseQuery<Campaign>('campaigns', {
+      orderBy: { column: 'created_at', ascending: false },
+    });
 
   const insertMutation = useSupabaseInsert<Campaign>('campaigns');
   const updateMutation = useSupabaseUpdate<Campaign>('campaigns');
   const deleteMutation = useSupabaseDelete('campaigns');
 
-  const handleImport = async (file: File) => {
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext === 'csv') {
-      try {
-        const text = await file.text();
-        const lines = text.split(/\r?\n/).filter(Boolean);
-        if (lines.length < 2) throw new Error('CSV must contain header and at least one row');
-        const headers = lines[0].split(',').map(h => h.trim());
-        const rows = lines.slice(1).map(line => {
-          const cols = line.split(',');
-          const obj: Record<string, any> = {};
-          headers.forEach((h, i) => obj[h] = cols[i] ?? '');
-          return obj;
-        });
-
-        await Promise.all(rows.map(r => insertMutation.mutateAsync(r)));
-        toast.success('Imported campaigns successfully');
-      } catch (err: any) {
-        console.error(err);
-        toast.error(err?.message || 'Failed to import CSV');
-      }
-      return;
-    }
-
-    if (ext === 'xlsx' || ext === 'xls') {
-      try {
-        const ab = await file.arrayBuffer();
-        const wb = XLSX.read(ab, { type: 'array' });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-        if (rows.length < 2) throw new Error('Excel must contain header and at least one row');
-        const headers = rows[0].map((h: any) => String(h).trim());
-        const dataRows = rows.slice(1).map(r => {
-          const obj: Record<string, any> = {};
-          headers.forEach((h, i) => obj[h] = r[i] ?? '');
-          return obj;
-        });
-        await Promise.all(dataRows.map(r => insertMutation.mutateAsync(r)));
-        toast.success('Imported campaigns from Excel successfully');
-      } catch (err: any) {
-        console.error(err);
-        toast.error(err?.message || 'Failed to import Excel');
-      }
-      return;
-    }
-
-    toast.success(`${file.name} accepted (not parsed).`);
-  };
+  /* =======================
+     Table Columns
+  ======================= */
 
   const columns: Column<Campaign>[] = [
     { key: 'name', label: 'Campaign Name', sortable: true },
@@ -115,210 +101,340 @@ export default function CampaignsPage() {
     {
       key: 'status',
       label: 'Status',
-      render: (value) => {
-        const statusMap: Record<string, 'success' | 'info' | 'warning' | 'pending'> = {
-          active: 'success',
-          completed: 'info',
+      render: value => {
+        const map: Record<string, any> = {
           planned: 'warning',
+          active: 'success',
           paused: 'pending',
+          completed: 'info',
         };
-        return <StatusBadge status={statusMap[value] || 'default'} label={value} dot />;
+        return (
+          <StatusBadge
+            status={map[value] || 'default'}
+            label={value}
+            dot
+          />
+        );
       },
     },
     {
-      key: 'start_date',
+      key: 'duration',
       label: 'Duration',
       render: (_, row) => {
-        const start = row.start_date ? format(new Date(row.start_date), 'dd MMM') : '-';
-        const end = row.end_date ? format(new Date(row.end_date), 'dd MMM yyyy') : '-';
-        return `${start} - ${end}`;
+        const s = row.start_date
+          ? format(new Date(row.start_date), 'dd MMM')
+          : '-';
+        const e = row.end_date
+          ? format(new Date(row.end_date), 'dd MMM yyyy')
+          : '-';
+        return `${s} - ${e}`;
       },
     },
     {
       key: 'budget',
       label: 'Budget',
       sortable: true,
-      render: (value) => `₹${((value || 0) / 100000).toFixed(1)}L`,
+      render: v => (v ? `₹${(v / 100000).toFixed(1)}L` : '-'),
     },
-    { key: 'area', label: 'Area', sortable: true },
-    { key: 'campaign_run_by', label: 'Campaign Run By', sortable: true, render: (value) => value || '-' },
+    { key: 'area', label: 'Area' },
     {
-      key: 'spent',
+      key: 'campaign_run_by',
+      label: 'Campaign Run By',
+      render: v => v || '-',
+    },
+    {
+      key: 'progress',
       label: 'Progress',
       render: (_, row) => {
-        const progress = row.budget ? ((row.spent || 0) / row.budget) * 100 : 0;
+        const percent = row.budget
+          ? ((row.spent || 0) / row.budget) * 100
+          : 0;
         return (
           <div className="w-24">
-            <Progress value={progress} className="h-2" />
-            <span className="text-xs text-muted-foreground">{progress.toFixed(0)}%</span>
+            <Progress value={percent} className="h-2" />
+            <span className="text-xs text-muted-foreground">
+              {percent.toFixed(0)}%
+            </span>
           </div>
         );
       },
     },
     {
-      key: 'achieved',
+      key: 'achievement',
       label: 'Achievement',
       render: (_, row) => {
-        const progress = row.target ? ((row.achieved || 0) / row.target) * 100 : 0;
-        return `${row.achieved || 0}/${row.target || 0} (${progress.toFixed(0)}%)`;
+        const percent = row.target
+          ? ((row.achieved || 0) / row.target) * 100
+          : 0;
+        return `${row.achieved || 0}/${row.target || 0} (${percent.toFixed(
+          0
+        )}%)`;
       },
     },
   ];
+
+  /* =======================
+     Handlers
+  ======================= */
 
   const handleAdd = () => {
     setEditing(null);
     setFormData({
       name: '',
       type: '',
-      description: '',
       status: 'planned',
       start_date: '',
       end_date: '',
-      budget: 0,
-      spent: 0,
-      target: 0,
-      achieved: 0,
-      reach: 0,
+      budget: '',
+      spent: '',
+      target: '',
+      achieved: '',
       area: '',
       campaign_run_by: '',
     });
     setIsDialogOpen(true);
   };
 
-  const handleEdit = (item: Campaign) => {
-    setEditing(item);
+  const handleEdit = (c: Campaign) => {
+    setEditing(c);
     setFormData({
-      name: item.name,
-      type: item.type,
-      description: item.description || '',
-      status: item.status || 'planned',
-      start_date: item.start_date || '',
-      end_date: item.end_date || '',
-      budget: item.budget || 0,
-      spent: item.spent || 0,
-      target: item.target || 0,
-      achieved: item.achieved || 0,
-      reach: item.reach || 0,
-      area: item.area || '',
-      campaign_run_by: item.campaign_run_by || '',
+      name: c.name,
+      type: c.type,
+      status: c.status,
+      start_date: c.start_date || '',
+      end_date: c.end_date || '',
+      budget: c.budget?.toString() || '',
+      spent: c.spent?.toString() || '',
+      target: c.target?.toString() || '',
+      achieved: c.achieved?.toString() || '',
+      area: c.area || '',
+      campaign_run_by: c.campaign_run_by || '',
     });
     setIsDialogOpen(true);
   };
 
-  const handleDelete = async (item: Campaign) => {
-    await deleteMutation.mutateAsync(item.id);
+  const handleDelete = async (c: Campaign) => {
+    await deleteMutation.mutateAsync(c.id);
+    toast.success('Campaign deleted');
+    refetch();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const submitData = {
-      ...formData,
-      description: formData.description || null,
+
+    const payload = {
+      name: formData.name,
+      type: formData.type,
+      status: formData.status,
       start_date: formData.start_date || null,
       end_date: formData.end_date || null,
+      budget: formData.budget ? Number(formData.budget) : null,
+      spent: formData.spent ? Number(formData.spent) : null,
+      target: formData.target ? Number(formData.target) : null,
+      achieved: formData.achieved ? Number(formData.achieved) : null,
       area: formData.area || null,
       campaign_run_by: formData.campaign_run_by || null,
     };
+
     if (editing) {
-      await updateMutation.mutateAsync({ id: editing.id, data: submitData });
+      await updateMutation.mutateAsync({ id: editing.id, data: payload });
+      toast.success('Campaign updated');
     } else {
-      await insertMutation.mutateAsync(submitData);
+      await insertMutation.mutateAsync(payload);
+      toast.success('Campaign created');
     }
+
     setIsDialogOpen(false);
+    refetch();
   };
+
+  /* =======================
+     Render
+  ======================= */
 
   return (
     <>
       <CrudPage
         title="Marketing Campaigns"
-        description="Manage marketing campaigns and track performance"
+        description="Plan, execute and track marketing campaigns"
         data={campaigns}
         columns={columns}
         isLoading={isLoading}
         onAdd={handleAdd}
-        onImport={handleImport}
         onEdit={handleEdit}
         onDelete={handleDelete}
-        onRefresh={() => refetch()}
+        onRefresh={refetch}
         addLabel="New Campaign"
       />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editing ? 'Edit Campaign' : 'Create New Campaign'}</DialogTitle>
+            <DialogTitle>
+              {editing ? 'Edit Campaign' : 'Create Campaign'}
+            </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Campaign Name *</Label>
-                <Input value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
-              </div>
-              <div className="space-y-2">
-                <Label>Type *</Label>
-                <Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
-                  <SelectContent>
-                    {campaignTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <Select value={formData.status} onValueChange={v => setFormData({ ...formData, status: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="planned">Planned</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="paused">Paused</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Budget (₹)</Label>
-                <Input type="number" value={formData.budget} onChange={e => setFormData({ ...formData, budget: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Start Date</Label>
-                <Input type="date" value={formData.start_date} onChange={e => setFormData({ ...formData, start_date: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>End Date</Label>
-                <Input type="date" value={formData.end_date} onChange={e => setFormData({ ...formData, end_date: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Spent (₹)</Label>
-                <Input type="number" value={formData.spent} onChange={e => setFormData({ ...formData, spent: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Target</Label>
-                <Input type="number" value={formData.target} onChange={e => setFormData({ ...formData, target: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Achieved</Label>
-                <Input type="number" value={formData.achieved} onChange={e => setFormData({ ...formData, achieved: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Reach</Label>
-                <Input type="number" value={formData.reach} onChange={e => setFormData({ ...formData, reach: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Area</Label>
-                <Input value={formData.area} onChange={e => setFormData({ ...formData, area: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Campaign Run By</Label>
-                <Input value={formData.campaign_run_by} onChange={e => setFormData({ ...formData, campaign_run_by: e.target.value })} />
-              </div>
+
+          <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Campaign Name *</Label>
+              <Input
+                value={formData.name}
+                onChange={e =>
+                  setFormData({ ...formData, name: e.target.value })
+                }
+                required
+              />
             </div>
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
+
+            <div>
+              <Label>Type *</Label>
+              <Select
+                value={formData.type}
+                onValueChange={v =>
+                  setFormData({ ...formData, type: v })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {campaignTypes.map(t => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="flex justify-end gap-3 pt-4">
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={insertMutation.isPending || updateMutation.isPending}>
+
+            <div>
+              <Label>Status</Label>
+              <Select
+                value={formData.status}
+                onValueChange={v =>
+                  setFormData({ ...formData, status: v })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="planned">Planned</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="paused">Paused</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Budget (₹)</Label>
+              <Input
+                type="number"
+                value={formData.budget}
+                onChange={e =>
+                  setFormData({ ...formData, budget: e.target.value })
+                }
+              />
+            </div>
+
+            <div>
+              <Label>Start Date</Label>
+              <Input
+                type="date"
+                value={formData.start_date}
+                onChange={e =>
+                  setFormData({
+                    ...formData,
+                    start_date: e.target.value,
+                  })
+                }
+              />
+            </div>
+
+            <div>
+              <Label>End Date</Label>
+              <Input
+                type="date"
+                value={formData.end_date}
+                onChange={e =>
+                  setFormData({
+                    ...formData,
+                    end_date: e.target.value,
+                  })
+                }
+              />
+            </div>
+
+            <div>
+              <Label>Spent (₹)</Label>
+              <Input
+                type="number"
+                value={formData.spent}
+                onChange={e =>
+                  setFormData({ ...formData, spent: e.target.value })
+                }
+              />
+            </div>
+
+            <div>
+              <Label>Target</Label>
+              <Input
+                type="number"
+                value={formData.target}
+                onChange={e =>
+                  setFormData({ ...formData, target: e.target.value })
+                }
+              />
+            </div>
+
+            <div>
+              <Label>Achieved</Label>
+              <Input
+                type="number"
+                value={formData.achieved}
+                onChange={e =>
+                  setFormData({
+                    ...formData,
+                    achieved: e.target.value,
+                  })
+                }
+              />
+            </div>
+
+            <div>
+              <Label>Area</Label>
+              <Input
+                value={formData.area}
+                onChange={e =>
+                  setFormData({ ...formData, area: e.target.value })
+                }
+              />
+            </div>
+
+            <div className="col-span-2">
+              <Label>Campaign Run By</Label>
+              <Input
+                value={formData.campaign_run_by}
+                onChange={e =>
+                  setFormData({
+                    ...formData,
+                    campaign_run_by: e.target.value,
+                  })
+                }
+              />
+            </div>
+
+            <div className="col-span-2 flex justify-end gap-3 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit">
                 {editing ? 'Update' : 'Create'}
               </Button>
             </div>

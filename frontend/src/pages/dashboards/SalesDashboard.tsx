@@ -172,43 +172,60 @@ export const SalesDashboard: React.FC = () => {
           continue;
         }
         const filename = `${Date.now()}_${file.name}`;
+        const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
 
-        // upload to supabase storage bucket "uploads"
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('uploads')
-          .upload(filename, file, { upsert: false });
+        // Upload to backend storage endpoint (backend will use service role key)
+        const form = new FormData();
+        form.append('file', file);
+        form.append('bucket', 'uploads');
+        form.append('path', '');
 
-        if (uploadError) {
-          console.error('Upload error', uploadError);
-          // try upsert if conflict
-          if ((uploadError as any).status === 409) {
-            await supabase.storage.from('uploads').upload(filename, file, { upsert: true }).catch(e => console.error(e));
-          } else {
-            continue;
-          }
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token ?? null;
+
+        const uploadRes = await fetch(`${BACKEND_URL}/api/storage/upload`, {
+          method: 'POST',
+          headers: {
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: form,
+        });
+
+        if (!uploadRes.ok) {
+          console.error('Upload failed', await uploadRes.text());
+          continue;
         }
 
-        // get public url
-        const { data: publicUrlData } = supabase.storage.from('uploads').getPublicUrl(filename);
-        const publicUrl = publicUrlData?.publicUrl ?? '';
+        const uploadJson = await uploadRes.json();
+        const uploadedPath = uploadJson.data?.path || uploadJson.data?.Key || filename;
 
-        // insert metadata record into DB table "files"
-        const { data: insertData, error: insertError } = await supabase
-          .from('files')
-          .insert([
-            {
-              filename: file.name,
-              path: filename,
-              url: publicUrl,
-              mime_type: file.type,
-              size: file.size,
-              uploaded_at: new Date().toISOString(),
-            },
-          ]);
+        // get public url via backend
+        const publicRes = await fetch(`${BACKEND_URL}/api/storage/public?bucket=uploads&file=${encodeURIComponent(uploadedPath)}`);
+        let publicUrl = '';
+        if (publicRes.ok) {
+          const pj = await publicRes.json();
+          publicUrl = pj.data?.publicUrl ?? pj.data?.public_url ?? '';
+        }
 
-        if (insertError) {
-          console.error('DB insert error', insertError);
-          // continue; keep processing other files
+        // insert metadata record into DB table "files" via backend data endpoint
+        const insertRes = await fetch(`${BACKEND_URL}/api/data?table=files`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+          },
+          body: JSON.stringify({
+            filename: file.name,
+            path: uploadedPath,
+            url: publicUrl,
+            mime_type: file.type,
+            size: file.size,
+            uploaded_at: new Date().toISOString(),
+          })
+        });
+
+        if (!insertRes.ok) {
+          console.error('DB insert failed', await insertRes.text());
         }
 
         // Parse CSV only

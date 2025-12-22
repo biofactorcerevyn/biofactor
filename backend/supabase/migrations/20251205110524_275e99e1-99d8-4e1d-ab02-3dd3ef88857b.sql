@@ -1,31 +1,31 @@
--- Create app_role enum
-CREATE TYPE public.app_role AS ENUM (
-  'super_admin',
-  'sales_officer',
-  'field_officer',
-  'mdo',
-  'regional_manager',
-  'zonal_manager',
-  'warehouse_manager',
-  'manufacturing_manager',
-  'qc_analyst',
-  'finance_officer',
-  'hr_manager',
-  'rnd_manager',
-  'executive'
-);
+-- -- Create app_role enum
+-- CREATE TYPE public.app_role AS ENUM (
+--   'super_admin',
+--   'sales_officer',
+--   'field_officer',
+--   'mdo',
+--   'regional_manager',
+--   'zonal_manager',
+--   'warehouse_manager',
+--   'manufacturing_manager',
+--   'qc_analyst',
+--   'finance_officer',
+--   'hr_manager',
+--   'rnd_manager',
+--   'executive'
+-- );
 
 -- Create user_roles table
-CREATE TABLE public.user_roles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-  role app_role NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-  UNIQUE (user_id, role)
-);
+-- CREATE TABLE public.user_roles (
+--   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+--   role app_role NOT NULL,
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+--   UNIQUE (user_id, role)
+-- );
 
 -- Enable RLS on user_roles
-ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 
 -- Create has_role function
 CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role app_role)
@@ -42,16 +42,17 @@ AS $$
 $$;
 
 -- Create profiles table
-CREATE TABLE public.profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email TEXT NOT NULL,
-  full_name TEXT,
-  phone TEXT,
-  avatar_url TEXT,
-  department TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
+-- CREATE TABLE public.profiles (
+--   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+--   email TEXT NOT NULL,
+--   username TEXT,
+--   full_name TEXT,
+--   phone TEXT,
+--   avatar_url TEXT,
+--   department TEXT,
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+--   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+-- );
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
@@ -97,16 +98,23 @@ ALTER TABLE public.dealers ENABLE ROW LEVEL SECURITY;
 CREATE TABLE public.farmers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
+  age INTEGER,
   phone TEXT,
   village TEXT,
   district TEXT,
   state TEXT,
   farm_size_acres DECIMAL(10, 2),
-  crops JSONB DEFAULT '[]',
-  dealer_id UUID REFERENCES public.dealers(id),
-  created_by UUID REFERENCES auth.users(id),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+  irrigation_type TEXT,
+  land_type TEXT,
+  soil_type TEXT,
+  crops JSONB NOT NULL DEFAULT '[]'::jsonb,
+  lat DOUBLE PRECISION,
+  lon DOUBLE PRECISION,
+  created_by UUID NOT NULL REFERENCES auth.users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+
 
 ALTER TABLE public.farmers ENABLE ROW LEVEL SECURITY;
 
@@ -373,19 +381,22 @@ CREATE TABLE public.payments (
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
 -- Create campaigns table
-CREATE TABLE public.campaigns (
+CREATE TABLE IF NOT EXISTS public.campaigns (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
-  description TEXT,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'planned',
   start_date DATE,
   end_date DATE,
-  budget DECIMAL(12, 2),
-  spent DECIMAL(12, 2) DEFAULT 0,
-  status TEXT DEFAULT 'active',
-  user_id UUID REFERENCES auth.users(id),
-  created_by UUID REFERENCES auth.users(id),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+  budget NUMERIC,
+  spent NUMERIC,
+  target NUMERIC,
+  achieved NUMERIC,
+  area TEXT,
+  campaign_run_by TEXT,
+  created_by UUID NOT NULL REFERENCES auth.users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE public.campaigns ENABLE ROW LEVEL SECURITY;
