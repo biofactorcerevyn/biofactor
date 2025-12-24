@@ -1,16 +1,34 @@
 import React, { useState } from 'react';
 import { CrudPage, Column } from '@/components/crud/CrudPage';
-import { useSupabaseQuery, useSupabaseInsert, useSupabaseUpdate, useSupabaseDelete } from '@/hooks/useSupabaseQuery';
+import {
+  useSupabaseQuery,
+  useSupabaseInsert,
+  useSupabaseUpdate,
+  useSupabaseDelete,
+} from '@/hooks/useSupabaseQuery';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+
+/* ================= TYPES ================= */
 
 interface Order {
   id: string;
@@ -36,12 +54,15 @@ interface Dealer {
   business_name: string | null;
 }
 
+/* ================= PAGE ================= */
+
 export default function OrdersPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+
   const [formData, setFormData] = useState({
     dealer_id: '',
-    order_date:'',
+    order_date: '',
     expected_delivery: '',
     status: 'pending',
     payment_status: 'unpaid',
@@ -49,118 +70,179 @@ export default function OrdersPage() {
     discount_amount: 0,
     tax_amount: 0,
     action: '',
-      zone: '',
-      area: '',
-      designation: '',
+    zone: '',
+    area: '',
+    designation: '',
   });
 
-  const { data: orders = [], isLoading, refetch } = useSupabaseQuery<Order>('orders', {
-    orderBy: { column: 'created_at', ascending: false }
-  });
-  
-  const { data: dealers = [] } = useSupabaseQuery<Dealer>('dealers', {
-    select: 'id,name,business_name'
-  });
-  
+  const { data: orders = [], isLoading, refetch } =
+    useSupabaseQuery<Order>('orders', {
+      orderBy: { column: 'created_at', ascending: false },
+    });
+
+  const { data: dealers = [] } =
+    useSupabaseQuery<Dealer>('dealers', {
+      select: 'id,name,business_name',
+    });
+
   const insertMutation = useSupabaseInsert<Order>('orders');
   const updateMutation = useSupabaseUpdate<Order>('orders');
   const deleteMutation = useSupabaseDelete('orders');
 
+  /* ================= IMPORT HANDLER (FINAL FIXED) ================= */
+
   const handleImport = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext === 'csv') {
-      try {
-        const text = await file.text();
-        const lines = text.split(/\r?\n/).filter(Boolean);
-        if (lines.length < 2) throw new Error('CSV must contain header and at least one row');
-        const headers = lines[0].split(',').map(h => h.trim());
-        const rows = lines.slice(1).map(line => {
-          const cols = line.split(',');
-          const obj: Record<string, any> = {};
-          headers.forEach((h, i) => obj[h] = cols[i] ?? '');
-          return obj;
-        });
 
-        await Promise.all(rows.map(r => insertMutation.mutateAsync(r)));
-        toast.success('Imported orders successfully');
-      } catch (err: any) {
-        console.error(err);
-        toast.error(err?.message || 'Failed to import CSV');
-      }
+    if (!['csv', 'xlsx', 'xls'].includes(ext || '')) {
+      toast.error('Only CSV or Excel files are supported');
       return;
     }
 
-    if (ext === 'xlsx' || ext === 'xls') {
-      try {
+    try {
+      let rawRows: Record<string, any>[] = [];
+
+      /* ---------- READ FILE ---------- */
+      if (ext === 'csv') {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+
+        if (lines.length < 2) {
+          throw new Error('CSV must contain header and data rows');
+        }
+
+        const headers = lines[0].split(',').map(h => h.trim());
+
+        rawRows = lines.slice(1).map(line => {
+          const cols = line.split(',');
+          const obj: Record<string, any> = {};
+          headers.forEach((h, i) => (obj[h] = cols[i]?.trim() ?? null));
+          return obj;
+        });
+      } else {
         const ab = await file.arrayBuffer();
         const wb = XLSX.read(ab, { type: 'array' });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-        if (rows.length < 2) throw new Error('Excel must contain header and at least one row');
-        const headers = rows[0].map((h: any) => String(h).trim());
-        const dataRows = rows.slice(1).map(r => {
-          const obj: Record<string, any> = {};
-          headers.forEach((h, i) => obj[h] = r[i] ?? '');
-          return obj;
-        });
-        await Promise.all(dataRows.map(r => insertMutation.mutateAsync(r)));
-        toast.success('Imported orders from Excel successfully');
-      } catch (err: any) {
-        console.error(err);
-        toast.error(err?.message || 'Failed to import Excel');
+        rawRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
       }
-      return;
-    }
 
-    toast.success(`${file.name} accepted (not parsed).`);
+      if (!rawRows.length) {
+        throw new Error('No data found in file');
+      }
+
+      /* ---------- DEALER NAME → ID MAP ---------- */
+      const dealerMap = new Map<string, string>();
+      dealers.forEach(d => {
+        if (d.name) dealerMap.set(d.name.toLowerCase(), d.id);
+        if (d.business_name)
+          dealerMap.set(d.business_name.toLowerCase(), d.id);
+      });
+
+      /* ---------- MAP & VALIDATE ---------- */
+      const records = rawRows
+        .map(row => {
+          const dealerName =
+            row.dealer ??
+            row['Dealer'] ??
+            row['Dealer Name'] ??
+            row['Business Name'] ??
+            '';
+
+          const dealerId = dealerMap.get(
+            String(dealerName).toLowerCase()
+          );
+
+          const total = Number(row.total_amount ?? row['Total Amount'] ?? 0);
+          const discount = Number(
+            row.discount_amount ?? row['Discount Amount'] ?? 0
+          );
+          const tax = Number(row.tax_amount ?? row['Tax Amount'] ?? 0);
+
+          return {
+            dealer_id: dealerId ?? null,
+            order_date: row.order_date ?? row['Order Date'] ?? null,
+            expected_delivery:
+              row.expected_delivery ?? row['Expected Delivery'] ?? null,
+            status: row.status ?? 'pending',
+            payment_status: row.payment_status ?? 'unpaid',
+            total_amount: total,
+            discount_amount: discount,
+            tax_amount: tax,
+            net_amount: total - discount + tax,
+            action: row.action ?? null,
+            zone: row.zone ?? null,
+            area: row.area ?? null,
+            designation: row.designation ?? null,
+          };
+        })
+        .filter(r => r.dealer_id && r.order_date);
+
+      if (!records.length) {
+        throw new Error(
+          'No valid order rows found. Ensure Dealer Name & Order Date are correct.'
+        );
+      }
+
+      /* ---------- INSERT ---------- */
+      for (const record of records) {
+        await insertMutation.mutateAsync(record as any);
+      }
+
+      toast.success(`Imported ${records.length} orders successfully`);
+      refetch();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Import failed');
+    }
   };
+
+  /* ================= HELPERS ================= */
 
   const getDealerName = (dealerId: string) => {
     const dealer = dealers.find(d => d.id === dealerId);
-    return dealer?.name || 'Unknown' || dealer?.business_name;
+    return dealer?.name || dealer?.business_name || 'Unknown';
   };
+
+  /* ================= TABLE ================= */
 
   const columns: Column<Order>[] = [
     { key: 'id', label: 'Order #', sortable: true },
     {
       key: 'dealer_id',
       label: 'Dealer',
-      sortable: true,
-      render: (value) => getDealerName(value),
+      render: v => getDealerName(v),
     },
     {
       key: 'order_date',
       label: 'Date',
-      sortable: true,
-      render: (value) => value ? format(new Date(value), 'dd MMM yyyy') : '-',
+      render: v => (v ? format(new Date(v), 'dd MMM yyyy') : '-'),
     },
     {
       key: 'expected_delivery',
-      label: 'expected_delivery',
-      sortable: true,
-      render: (value) => value ? format(new Date(value), 'dd MMM yyyy') : '-',
+      label: 'Expected Delivery',
+      render: v => (v ? format(new Date(v), 'dd MMM yyyy') : '-'),
     },
     {
       key: 'status',
       label: 'Status',
-      render: (value) => {
-        const statusMap: Record<string, 'success' | 'info' | 'warning' | 'pending' | 'error'> = {
+      render: v => {
+        const map: Record<string, any> = {
           delivered: 'success',
           shipped: 'info',
           processing: 'warning',
           pending: 'pending',
           cancelled: 'error',
         };
-        return <StatusBadge status={statusMap[value] || 'default'} label={value} dot />;
+        return <StatusBadge status={map[v] || 'default'} label={v} dot />;
       },
     },
     {
       key: 'payment_status',
       label: 'Payment',
-      render: (value) => (
+      render: v => (
         <StatusBadge
-          status={value === 'paid' ? 'success' : value === 'partial' ? 'warning' : 'error'}
-          label={value}
+          status={v === 'paid' ? 'success' : v === 'partial' ? 'warning' : 'error'}
+          label={v}
           dot
         />
       ),
@@ -168,19 +250,20 @@ export default function OrdersPage() {
     {
       key: 'net_amount',
       label: 'Amount',
-      sortable: true,
-      render: (value) => `₹${(value || 0).toLocaleString()}`,
+      render: v => `₹${(v || 0).toLocaleString()}`,
     },
-      { key: 'zone', label: 'Zone' },
-      { key: 'area', label: 'Area' },
-      { key: 'designation', label: 'Designation' },
+    { key: 'zone', label: 'Zone' },
+    { key: 'area', label: 'Area' },
+    { key: 'designation', label: 'Designation' },
   ];
+
+  /* ================= CRUD ================= */
 
   const handleAdd = () => {
     setEditingOrder(null);
     setFormData({
       dealer_id: '',
-      order_date:'',
+      order_date: '',
       expected_delivery: '',
       status: 'pending',
       payment_status: 'unpaid',
@@ -199,7 +282,7 @@ export default function OrdersPage() {
     setEditingOrder(order);
     setFormData({
       dealer_id: order.dealer_id,
-      order_date:order.order_date || '',
+      order_date: order.order_date,
       expected_delivery: order.expected_delivery || '',
       status: order.status,
       payment_status: order.payment_status,
@@ -220,11 +303,13 @@ export default function OrdersPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const netAmount = formData.total_amount - formData.discount_amount + formData.tax_amount;
-    const submitData = {
+
+    const net_amount =
+      formData.total_amount - formData.discount_amount + formData.tax_amount;
+
+    const payload = {
       ...formData,
-      net_amount: netAmount,
+      net_amount,
       order_date: formData.order_date || null,
       expected_delivery: formData.expected_delivery || null,
       zone: formData.zone || null,
@@ -233,13 +318,19 @@ export default function OrdersPage() {
     };
 
     if (editingOrder) {
-      await updateMutation.mutateAsync({ id: editingOrder.id, data: submitData });
+      await updateMutation.mutateAsync({
+        id: editingOrder.id,
+        data: payload,
+      });
     } else {
-      await insertMutation.mutateAsync(submitData);
+      await insertMutation.mutateAsync(payload as any);
     }
 
     setIsDialogOpen(false);
+    refetch();
   };
+
+  /* ================= RENDER ================= */
 
   return (
     <>
@@ -253,149 +344,24 @@ export default function OrdersPage() {
         onImport={handleImport}
         onEdit={handleEdit}
         onDelete={handleDelete}
-        onRefresh={() => refetch()}
+        onRefresh={refetch}
         addLabel="New Order"
       />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{editingOrder ? 'Edit Order' : 'Create New Order'}</DialogTitle>
+            <DialogTitle>
+              {editingOrder ? 'Edit Order' : 'Create Order'}
+            </DialogTitle>
           </DialogHeader>
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="dealer_id">Dealer *</Label>
-                <Select value={formData.dealer_id} onValueChange={v => setFormData({ ...formData, dealer_id: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select dealer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dealers.map(dealer => (
-                      <SelectItem key={dealer.id} value={dealer.id}>
-                        {dealer.name || dealer.business_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="order_date">Order date</Label>
-                <Input
-                  id="order_date"
-                  type="date"
-                  value={formData.order_date}
-                  onChange={e => setFormData({ ...formData, order_date: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="expected_delivery">Expected Delivery</Label>
-                <Input
-                  id="expected_delivery"
-                  type="date"
-                  value={formData.expected_delivery}
-                  onChange={e => setFormData({ ...formData, expected_delivery: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select value={formData.status} onValueChange={v => setFormData({ ...formData, status: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="processing">Processing</SelectItem>
-                    <SelectItem value="shipped">Shipped</SelectItem>
-                    <SelectItem value="delivered">Delivered</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="payment_status">Payment Status</Label>
-                <Select value={formData.payment_status} onValueChange={v => setFormData({ ...formData, payment_status: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unpaid">Unpaid</SelectItem>
-                    <SelectItem value="partial">Partial</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="total_amount">Total Amount (₹)</Label>
-                <Input
-                  id="total_amount"
-                  type="number"
-                  value={formData.total_amount}
-                  onChange={e => setFormData({ ...formData, total_amount: Number(e.target.value) })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="discount_amount">Discount (₹)</Label>
-                <Input
-                  id="discount_amount"
-                  type="number"
-                  value={formData.discount_amount}
-                  onChange={e => setFormData({ ...formData, discount_amount: Number(e.target.value) })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="tax_amount">Tax (₹)</Label>
-                <Input
-                  id="tax_amount"
-                  type="number"
-                  value={formData.tax_amount}
-                  onChange={e => setFormData({ ...formData, tax_amount: Number(e.target.value) })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Net Amount</Label>
-                <div className="px-3 py-2 bg-muted rounded-md font-semibold">
-                  ₹{(formData.total_amount - formData.discount_amount + formData.tax_amount).toLocaleString()}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="zone">Zone</Label>
-                <Input
-                  id="zone"
-                  value={formData.zone}
-                  onChange={e => setFormData({ ...formData, zone: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="area">Area</Label>
-                <Input
-                  id="area"
-                  value={formData.area}
-                  onChange={e => setFormData({ ...formData, area: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="designation">Designation</Label>
-                <Input
-                  id="designation"
-                  value={formData.designation}
-                  onChange={e => setFormData({ ...formData, designation: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="action">Action</Label>
-              <Textarea
-                id="action"
-                value={formData.action}
-                onChange={e => setFormData({ ...formData, action: e.target.value })}
-              />
-            </div>
             <div className="flex justify-end gap-3 pt-4">
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={insertMutation.isPending || updateMutation.isPending}>
+              <Button type="submit">
                 {editingOrder ? 'Update' : 'Create'}
               </Button>
             </div>

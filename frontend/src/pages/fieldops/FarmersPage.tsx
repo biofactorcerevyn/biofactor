@@ -16,10 +16,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { useAuth } from '@/contexts/AuthContext'; // ✅ ADD THIS
+import { useAuth } from '@/contexts/AuthContext';
+import * as XLSX from 'xlsx';
 
 /* =======================
-   Farmer Interface
+   Types
 ======================= */
 
 interface Farmer {
@@ -45,7 +46,7 @@ interface Farmer {
 ======================= */
 
 export default function FarmersPage() {
-  const { user } = useAuth(); // ✅ GET LOGGED-IN USER
+  const { user } = useAuth();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingFarmer, setEditingFarmer] = useState<Farmer | null>(null);
@@ -66,10 +67,6 @@ export default function FarmersPage() {
     lon: '',
   });
 
-  /* =======================
-     Queries
-  ======================= */
-
   const { data: farmers = [], isLoading, refetch } =
     useSupabaseQuery<Farmer>('farmers', {
       orderBy: { column: 'created_at', ascending: false },
@@ -78,6 +75,89 @@ export default function FarmersPage() {
   const insertMutation = useSupabaseInsert<Farmer>('farmers');
   const updateMutation = useSupabaseUpdate<Farmer>('farmers');
   const deleteMutation = useSupabaseDelete('farmers');
+
+  /* =======================
+     IMPORT HANDLER (FINAL)
+  ======================= */
+
+  const handleImport = async (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    if (!['csv', 'xlsx', 'xls'].includes(ext || '')) {
+      toast.error('Only CSV or Excel files are supported');
+      return;
+    }
+
+    try {
+      let rawRows: Record<string, any>[] = [];
+
+      /* ---------- READ FILE ---------- */
+      if (ext === 'csv') {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) throw new Error('CSV must contain header and data');
+
+        const headers = lines[0].split(',').map(h => h.trim());
+
+        rawRows = lines.slice(1).map(line => {
+          const cols = line.split(',');
+          const obj: Record<string, any> = {};
+          headers.forEach((h, i) => (obj[h] = cols[i]?.trim() ?? null));
+          return obj;
+        });
+      } else {
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        rawRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+      }
+
+      if (!rawRows.length) throw new Error('No data found in file');
+
+      /* ---------- MAP TO DB STRUCTURE ---------- */
+      const mapRowToFarmer = (row: Record<string, any>) => ({
+        name: row.name ?? row.Name ?? '',
+        age: row.age ? Number(row.age) : null,
+        phone: row.phone ?? row.Phone ?? null,
+        village: row.village ?? row.Village ?? null,
+        district: row.district ?? row.District ?? null,
+        state: row.state ?? row.State ?? null,
+        farm_size_acres: row.farm_size_acres
+          ? Number(row.farm_size_acres)
+          : row['Farm Size (acres)']
+          ? Number(row['Farm Size (acres)'])
+          : null,
+        irrigation_type: row.irrigation_type ?? row.Irrigation ?? null,
+        land_type: row.land_type ?? row.Land ?? null,
+        soil_type: row.soil_type ?? row['Soil Type'] ?? null,
+        crops: row.crops
+          ? String(row.crops).split(',').map((c: string) => c.trim())
+          : [],
+        lat: row.lat ? Number(row.lat) : null,
+        lon: row.lon ? Number(row.lon) : null,
+        created_by: user.id,
+      });
+
+      const records = rawRows
+        .map(mapRowToFarmer)
+        .filter(r => r.name);
+
+      if (!records.length) {
+        throw new Error('No valid farmer records found');
+      }
+
+      /* ---------- INSERT ---------- */
+      for (const record of records) {
+        await insertMutation.mutateAsync(record as any);
+      }
+
+      toast.success(`Imported ${records.length} farmers successfully`);
+      refetch();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Import failed');
+    }
+  };
 
   /* =======================
      Table Columns
@@ -112,7 +192,7 @@ export default function FarmersPage() {
   ];
 
   /* =======================
-     Handlers
+     CRUD
   ======================= */
 
   const handleAdd = () => {
@@ -191,7 +271,6 @@ export default function FarmersPage() {
       });
       toast.success('Farmer updated');
     } else {
-      // ✅ IMPORTANT FIX
       await insertMutation.mutateAsync({
         ...payload,
         created_by: user.id,
@@ -216,6 +295,7 @@ export default function FarmersPage() {
         columns={columns}
         isLoading={isLoading}
         onAdd={handleAdd}
+        onImport={handleImport}
         onEdit={handleEdit}
         onDelete={handleDelete}
         onRefresh={refetch}

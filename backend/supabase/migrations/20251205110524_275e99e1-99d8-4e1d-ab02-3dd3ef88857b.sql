@@ -1,31 +1,31 @@
 -- -- Create app_role enum
--- CREATE TYPE public.app_role AS ENUM (
---   'super_admin',
---   'sales_officer',
---   'field_officer',
---   'mdo',
---   'regional_manager',
---   'zonal_manager',
---   'warehouse_manager',
---   'manufacturing_manager',
---   'qc_analyst',
---   'finance_officer',
---   'hr_manager',
---   'rnd_manager',
---   'executive'
--- );
+CREATE TYPE public.app_role AS ENUM (
+  'super_admin',
+  'sales_officer',
+  'field_officer',
+  'mdo',
+  'regional_manager',
+  'zonal_manager',
+  'warehouse_manager',
+  'manufacturing_manager',
+  'qc_analyst',
+  'finance_officer',
+  'hr_manager',
+  'rnd_manager',
+  'executive'
+);
 
 -- Create user_roles table
--- CREATE TABLE public.user_roles (
---   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
---   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
---   role app_role NOT NULL,
---   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
---   UNIQUE (user_id, role)
--- );
+CREATE TABLE public.user_roles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  role app_role NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  UNIQUE (user_id, role)
+);
 
 -- Enable RLS on user_roles
--- ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 
 -- Create has_role function
 CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role app_role)
@@ -42,17 +42,18 @@ AS $$
 $$;
 
 -- Create profiles table
--- CREATE TABLE public.profiles (
---   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
---   email TEXT NOT NULL,
---   username TEXT,
---   full_name TEXT,
---   phone TEXT,
---   avatar_url TEXT,
---   department TEXT,
---   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
---   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
--- );
+CREATE TABLE public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  password TEXT NOT NULL,
+  username TEXT,
+  full_name TEXT,
+  phone TEXT,
+  avatar_url TEXT,
+  department TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 

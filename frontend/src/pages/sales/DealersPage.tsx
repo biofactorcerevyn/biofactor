@@ -1,16 +1,28 @@
 import React, { useState } from 'react';
 import { CrudPage, Column } from '@/components/crud/CrudPage';
-import { useSupabaseQuery, useSupabaseInsert, useSupabaseUpdate, useSupabaseDelete } from '@/hooks/useSupabaseQuery';
+import {
+  useSupabaseQuery,
+  useSupabaseInsert,
+  useSupabaseUpdate,
+  useSupabaseDelete,
+} from '@/hooks/useSupabaseQuery';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
+
+/* ================= TYPES ================= */
 
 interface Dealer {
   id: string;
@@ -23,6 +35,7 @@ interface Dealer {
   state: string | null;
   status: string;
   kyc_status: string;
+  region: string;
   credit_limit: number;
   outstanding_balance: number;
   rating?: number | null;
@@ -39,85 +52,117 @@ const initialFormData = {
   state: '',
   status: 'active',
   kyc_status: 'pending',
+  region: '',
   credit_limit: 0,
-  rating: 0,
   outstanding_balance: 0,
+  rating: 0,
 };
+
+/* ================= PAGE ================= */
 
 export default function DealersPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingDealer, setEditingDealer] = useState<Dealer | null>(null);
   const [formData, setFormData] = useState(initialFormData);
-  
-  const queryClient = useQueryClient();
-  const { data: dealers = [], isLoading, refetch } = useSupabaseQuery<Dealer>('dealers', {
-    orderBy: { column: 'created_at', ascending: false }
-  });
-  
+
+  const { data: dealers = [], isLoading, refetch } =
+    useSupabaseQuery<Dealer>('dealers', {
+      orderBy: { column: 'created_at', ascending: false },
+    });
+
   const insertMutation = useSupabaseInsert<Dealer>('dealers');
   const updateMutation = useSupabaseUpdate<Dealer>('dealers');
   const deleteMutation = useSupabaseDelete('dealers');
 
+  /* ================= IMPORT HANDLER (FINAL) ================= */
+
   const handleImport = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext === 'csv') {
-      try {
-        const text = await file.text();
-        const lines = text.split(/\r?\n/).filter(Boolean);
-        if (lines.length < 2) throw new Error('CSV must contain header and at least one row');
-        const headers = lines[0].split(',').map(h => h.trim());
-        const rows = lines.slice(1).map(line => {
-          const cols = line.split(',');
-          const obj: Record<string, any> = {};
-          headers.forEach((h, i) => obj[h] = cols[i] ?? '');
-          return obj;
-        });
 
-        await Promise.all(rows.map(r => insertMutation.mutateAsync(r)));
-        toast.success('Imported dealers successfully');
-      } catch (err: any) {
-        console.error(err);
-        toast.error(err?.message || 'Failed to import CSV');
-      }
+    if (!['csv', 'xlsx', 'xls'].includes(ext || '')) {
+      toast.error('Only CSV or Excel files are supported');
       return;
     }
 
-    if (ext === 'xlsx' || ext === 'xls') {
-      try {
+    try {
+      let rawRows: Record<string, any>[] = [];
+
+      /* ---------- READ FILE ---------- */
+      if (ext === 'csv') {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+
+        if (lines.length < 2) throw new Error('CSV must have header and data');
+
+        const headers = lines[0].split(',').map(h => h.trim());
+
+        rawRows = lines.slice(1).map(line => {
+          const cols = line.split(',');
+          const obj: Record<string, any> = {};
+          headers.forEach((h, i) => (obj[h] = cols[i]?.trim() ?? null));
+          return obj;
+        });
+      } else {
         const ab = await file.arrayBuffer();
         const wb = XLSX.read(ab, { type: 'array' });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-        if (rows.length < 2) throw new Error('Excel must contain header and at least one row');
-        const headers = rows[0].map((h: any) => String(h).trim());
-        const dataRows = rows.slice(1).map(r => {
-          const obj: Record<string, any> = {};
-          headers.forEach((h, i) => obj[h] = r[i] ?? '');
-          return obj;
-        });
-        await Promise.all(dataRows.map(r => insertMutation.mutateAsync(r)));
-        toast.success('Imported dealers from Excel successfully');
-      } catch (err: any) {
-        console.error(err);
-        toast.error(err?.message || 'Failed to import Excel');
+        rawRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
       }
-      return;
-    }
 
-    // For other types (pdf etc.) accept but don't parse
-    toast.success(`${file.name} accepted (not parsed).`);
+      if (!rawRows.length) throw new Error('No data found in file');
+
+      /* ---------- MAP TO DB STRUCTURE ---------- */
+      const mapRow = (row: Record<string, any>) => ({
+        name: row.name ?? row.Name ?? '',
+        business_name: row.business_name ?? row['Business Name'] ?? null,
+        phone: String(row.phone ?? row.Phone ?? ''),
+        email: row.email ?? row.Email ?? null,
+        address: row.address ?? row.Address ?? null,
+        city: row.city ?? row.City ?? null,
+        state: row.state ?? row.State ?? null,
+        region: row.region ?? row.Region ?? null,
+        status: row.status ?? 'active',
+        kyc_status: row.kyc_status ?? 'pending',
+        credit_limit: Number(row.credit_limit ?? row['Credit Limit'] ?? 0),
+        outstanding_balance: Number(
+          row.outstanding_balance ?? row['Outstanding Balance'] ?? 0
+        ),
+        rating: row.rating !== undefined ? Number(row.rating) : null,
+      });
+
+      const records = rawRows
+        .map(mapRow)
+        .filter(r => r.name && r.phone);
+
+      if (!records.length) {
+        throw new Error('No valid dealer records found');
+      }
+
+      /* ---------- INSERT ---------- */
+      for (const record of records) {
+        await insertMutation.mutateAsync(record as any);
+      }
+
+      toast.success(`Imported ${records.length} dealers successfully`);
+      refetch();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Import failed');
+    }
   };
+
+  /* ================= TABLE ================= */
 
   const columns: Column<Dealer>[] = [
     { key: 'name', label: 'Name', sortable: true },
-    { key: 'business_name', label: 'Business Name', sortable: true },
+    { key: 'business_name', label: 'Business', sortable: true },
     { key: 'phone', label: 'Phone' },
     { key: 'city', label: 'City', sortable: true },
     { key: 'state', label: 'State', sortable: true },
     {
       key: 'status',
       label: 'Status',
-      render: (value) => (
+      render: value => (
         <StatusBadge
           status={value === 'active' ? 'success' : value === 'inactive' ? 'error' : 'warning'}
           label={value}
@@ -128,7 +173,7 @@ export default function DealersPage() {
     {
       key: 'kyc_status',
       label: 'KYC',
-      render: (value) => (
+      render: value => (
         <StatusBadge
           status={value === 'verified' ? 'success' : value === 'pending' ? 'warning' : 'error'}
           label={value}
@@ -140,25 +185,23 @@ export default function DealersPage() {
       key: 'credit_limit',
       label: 'Credit Limit',
       sortable: true,
-      render: (value) => `₹${(value || 0).toLocaleString()}`,
+      render: v => `₹${(v || 0).toLocaleString()}`,
     },
     {
       key: 'outstanding_balance',
       label: 'Outstanding',
       sortable: true,
-      render: (value) => (
-        <span className={value > 0 ? 'text-destructive' : ''}>
-          ₹{(value || 0).toLocaleString()}
-        </span>
-      ),
+      render: v => <span className={v > 0 ? 'text-destructive' : ''}>₹{v}</span>,
     },
     {
       key: 'rating',
       label: 'Rating',
       sortable: true,
-      render: (value) => (value || value === 0 ? `${Number(value).toFixed(1)}` : '-'),
+      render: v => (v !== null && v !== undefined ? Number(v).toFixed(1) : '-'),
     },
   ];
+
+  /* ================= CRUD ================= */
 
   const handleAdd = () => {
     setEditingDealer(null);
@@ -168,20 +211,7 @@ export default function DealersPage() {
 
   const handleEdit = (dealer: Dealer) => {
     setEditingDealer(dealer);
-    setFormData({
-      name: dealer.name,
-      business_name: dealer.business_name || '',
-      phone: dealer.phone,
-      email: dealer.email || '',
-      address: dealer.address || '',
-      city: dealer.city || '',
-      state: dealer.state || '',
-      status: dealer.status,
-      kyc_status: dealer.kyc_status,
-      credit_limit: dealer.credit_limit,
-      rating: dealer.rating || 0,
-      outstanding_balance: dealer.outstanding_balance || 0,
-    });
+    setFormData({ ...dealer });
     setIsDialogOpen(true);
   };
 
@@ -191,15 +221,16 @@ export default function DealersPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (editingDealer) {
       await updateMutation.mutateAsync({ id: editingDealer.id, data: formData });
     } else {
-      await insertMutation.mutateAsync(formData);
+      await insertMutation.mutateAsync(formData as any);
     }
-    
     setIsDialogOpen(false);
+    refetch();
   };
+
+  /* ================= RENDER ================= */
 
   return (
     <>
@@ -213,138 +244,39 @@ export default function DealersPage() {
         onImport={handleImport}
         onEdit={handleEdit}
         onDelete={handleDelete}
-        onRefresh={() => refetch()}
+        onRefresh={refetch}
         addLabel="Add Dealer"
       />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingDealer ? 'Edit Dealer' : 'Add New Dealer'}</DialogTitle>
+            <DialogTitle>{editingDealer ? 'Edit Dealer' : 'Add Dealer'}</DialogTitle>
           </DialogHeader>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Name *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="business_name">Business Name</Label>
-                <Input
-                  id="business_name"
-                  value={formData.business_name}
-                  onChange={e => setFormData({ ...formData, business_name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone *</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={e => setFormData({ ...formData, email: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="city">City</Label>
-                <Input
-                  id="city"
-                  value={formData.city}
-                  onChange={e => setFormData({ ...formData, city: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="state">State</Label>
-                <Input
-                  id="state"
-                  value={formData.state}
-                  onChange={e => setFormData({ ...formData, state: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select value={formData.status} onValueChange={v => setFormData({ ...formData, status: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="suspended">Suspended</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="kyc_status">KYC Status</Label>
-                <Select value={formData.kyc_status} onValueChange={v => setFormData({ ...formData, kyc_status: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="verified">Verified</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="credit_limit">Credit Limit (₹)</Label>
-                <Input
-                  id="credit_limit"
-                  type="number"
-                  value={formData.credit_limit}
-                  onChange={e => setFormData({ ...formData, credit_limit: Number(e.target.value) })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="outstanding_balance">Outstanding (₹)</Label>
-                <Input
-                  id="outstanding_balance"
-                  type="number"
-                  value={formData.outstanding_balance}
-                  onChange={e => setFormData({ ...formData, outstanding_balance: Number(e.target.value) })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rating">Rating</Label>
-                <Input
-                  id="rating"
-                  type="number"
-                  min={0}
-                  max={5}
-                  step={0.1}
-                  value={formData.rating}
-                  onChange={e => setFormData({ ...formData, rating: Number(e.target.value) })}
-                />
-              </div>
+              {Object.entries(formData).map(
+                ([key, value]) =>
+                  typeof value !== 'number' && (
+                    <div key={key}>
+                      <Label>{key.replace('_', ' ')}</Label>
+                      <Input
+                        value={String(value ?? '')}
+                        onChange={e =>
+                          setFormData({ ...formData, [key]: e.target.value })
+                        }
+                      />
+                    </div>
+                  )
+              )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="address">Address</Label>
-              <Textarea
-                id="address"
-                value={formData.address}
-                onChange={e => setFormData({ ...formData, address: e.target.value })}
-              />
-            </div>
+
             <div className="flex justify-end gap-3 pt-4">
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={insertMutation.isPending || updateMutation.isPending}>
+              <Button type="submit">
                 {editingDealer ? 'Update' : 'Create'}
               </Button>
             </div>

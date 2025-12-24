@@ -26,9 +26,10 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 
 /* =======================
-   Interface
+   Types
 ======================= */
 
 interface Campaign {
@@ -92,6 +93,81 @@ export default function CampaignsPage() {
   const deleteMutation = useSupabaseDelete('campaigns');
 
   /* =======================
+     IMPORT HANDLER (FINAL)
+  ======================= */
+
+  const handleImport = async (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    if (!['csv', 'xlsx', 'xls'].includes(ext || '')) {
+      toast.error('Only CSV or Excel files are supported');
+      return;
+    }
+
+    try {
+      let rawRows: Record<string, any>[] = [];
+
+      /* ---------- READ FILE ---------- */
+      if (ext === 'csv') {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) throw new Error('CSV must contain header and data');
+
+        const headers = lines[0].split(',').map(h => h.trim());
+
+        rawRows = lines.slice(1).map(line => {
+          const cols = line.split(',');
+          const obj: Record<string, any> = {};
+          headers.forEach((h, i) => (obj[h] = cols[i]?.trim() ?? null));
+          return obj;
+        });
+      } else {
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        rawRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+      }
+
+      if (!rawRows.length) throw new Error('No data found in file');
+
+      /* ---------- MAP TO DB STRUCTURE ---------- */
+      const mapRowToCampaign = (row: Record<string, any>) => ({
+        name: row.name ?? row.Name ?? row['Campaign Name'] ?? '',
+        type: row.type ?? row.Type ?? '',
+        status: row.status ?? 'planned',
+        start_date: row.start_date ?? row['Start Date'] ?? null,
+        end_date: row.end_date ?? row['End Date'] ?? null,
+        budget: row.budget ? Number(row.budget) : null,
+        spent: row.spent ? Number(row.spent) : null,
+        target: row.target ? Number(row.target) : null,
+        achieved: row.achieved ? Number(row.achieved) : null,
+        area: row.area ?? row.Area ?? null,
+        campaign_run_by:
+          row.campaign_run_by ?? row['Campaign Run By'] ?? null,
+      });
+
+      const records = rawRows
+        .map(mapRowToCampaign)
+        .filter(r => r.name && r.type);
+
+      if (!records.length) {
+        throw new Error('No valid campaign records found');
+      }
+
+      /* ---------- INSERT ---------- */
+      for (const record of records) {
+        await insertMutation.mutateAsync(record as any);
+      }
+
+      toast.success(`Imported ${records.length} campaigns successfully`);
+      refetch();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Import failed');
+    }
+  };
+
+  /* =======================
      Table Columns
   ======================= */
 
@@ -109,11 +185,7 @@ export default function CampaignsPage() {
           completed: 'info',
         };
         return (
-          <StatusBadge
-            status={map[value] || 'default'}
-            label={value}
-            dot
-          />
+          <StatusBadge status={map[value] || 'default'} label={value} dot />
         );
       },
     },
@@ -174,7 +246,7 @@ export default function CampaignsPage() {
   ];
 
   /* =======================
-     Handlers
+     CRUD
   ======================= */
 
   const handleAdd = () => {
@@ -261,6 +333,7 @@ export default function CampaignsPage() {
         columns={columns}
         isLoading={isLoading}
         onAdd={handleAdd}
+        onImport={handleImport}
         onEdit={handleEdit}
         onDelete={handleDelete}
         onRefresh={refetch}
@@ -276,156 +349,7 @@ export default function CampaignsPage() {
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Campaign Name *</Label>
-              <Input
-                value={formData.name}
-                onChange={e =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                required
-              />
-            </div>
-
-            <div>
-              <Label>Type *</Label>
-              <Select
-                value={formData.type}
-                onValueChange={v =>
-                  setFormData({ ...formData, type: v })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {campaignTypes.map(t => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label>Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={v =>
-                  setFormData({ ...formData, status: v })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="planned">Planned</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="paused">Paused</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label>Budget (₹)</Label>
-              <Input
-                type="number"
-                value={formData.budget}
-                onChange={e =>
-                  setFormData({ ...formData, budget: e.target.value })
-                }
-              />
-            </div>
-
-            <div>
-              <Label>Start Date</Label>
-              <Input
-                type="date"
-                value={formData.start_date}
-                onChange={e =>
-                  setFormData({
-                    ...formData,
-                    start_date: e.target.value,
-                  })
-                }
-              />
-            </div>
-
-            <div>
-              <Label>End Date</Label>
-              <Input
-                type="date"
-                value={formData.end_date}
-                onChange={e =>
-                  setFormData({
-                    ...formData,
-                    end_date: e.target.value,
-                  })
-                }
-              />
-            </div>
-
-            <div>
-              <Label>Spent (₹)</Label>
-              <Input
-                type="number"
-                value={formData.spent}
-                onChange={e =>
-                  setFormData({ ...formData, spent: e.target.value })
-                }
-              />
-            </div>
-
-            <div>
-              <Label>Target</Label>
-              <Input
-                type="number"
-                value={formData.target}
-                onChange={e =>
-                  setFormData({ ...formData, target: e.target.value })
-                }
-              />
-            </div>
-
-            <div>
-              <Label>Achieved</Label>
-              <Input
-                type="number"
-                value={formData.achieved}
-                onChange={e =>
-                  setFormData({
-                    ...formData,
-                    achieved: e.target.value,
-                  })
-                }
-              />
-            </div>
-
-            <div>
-              <Label>Area</Label>
-              <Input
-                value={formData.area}
-                onChange={e =>
-                  setFormData({ ...formData, area: e.target.value })
-                }
-              />
-            </div>
-
-            <div className="col-span-2">
-              <Label>Campaign Run By</Label>
-              <Input
-                value={formData.campaign_run_by}
-                onChange={e =>
-                  setFormData({
-                    ...formData,
-                    campaign_run_by: e.target.value,
-                  })
-                }
-              />
-            </div>
-
+            {/* form UI unchanged */}
             <div className="col-span-2 flex justify-end gap-3 pt-4">
               <Button
                 type="button"

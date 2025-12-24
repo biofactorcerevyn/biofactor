@@ -46,35 +46,37 @@ export const Login: React.FC = () => {
     e.preventDefault();
     setError('');
     setLoading(true);
-
+  
     try {
       const success = await login(email, password);
-      if (success) {
-        // login stores the user in localStorage. Read it to determine route immediately.
-        const stored = localStorage.getItem('biofactor_user');
-        const loggedUser: User | null = stored ? JSON.parse(stored) : null;
-        navigate(getDashboardRoute(loggedUser));
-      } else {
-        setError('Invalid email or password');
+  
+      if (!success) {
+        setError('Invalid credentials or access denied');
+        return;
       }
-    } catch (err) {
-      setError('An error occurred. Please try again.');
+  
+      const stored = localStorage.getItem('biofactor_user');
+      const loggedUser: User | null = stored ? JSON.parse(stored) : null;
+      navigate(getDashboardRoute(loggedUser), { replace: true });
+    } catch {
+      setError('Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+  
 
   const demoAccounts = [
-    { email: 'admin@biofactor.com', role: 'Super Admin', password: 'admin123' },
-    { email: 'ceo@biofactor.com', role: 'Executive/CEO', password: 'ceo123' },
-    { email: 'sales@biofactor.com', role: 'Sales Officer', password: 'sales123' },
-    { email: 'warehouse@biofactor.com', role: 'Warehouse Manager', password: 'warehouse123' },
-    { email: 'manufacturing@biofactor.com', role: 'Manufacturing Manager', password: 'mfg123' },
+    { email: 'admin@biofactor.com', role: 'Super Admin', password: 'Admin@123' },
+    { email: 'ceo@biofactor.com', role: 'Executive/CEO', password: 'Ceo@123' },
+    { email: 'sales@biofactor.com', role: 'Sales Officer', password: 'Sales@123' },
+    { email: 'warehouse@biofactor.com', role: 'Warehouse Manager', password: 'Warehouse@123' },
+    { email: 'manufacturing@biofactor.com', role: 'Manufacturing Manager', password: 'Mfg@123' },
     // { email: 'qc@biofactor.com', role: 'QC Analyst', password: 'qc123' },
-    { email: 'finance@biofactor.com', role: 'Finance Officer', password: 'finance123' },
-    { email: 'hr@biofactor.com', role: 'HR Manager', password: 'hr123' },
-    { email: 'field@biofactor.com', role: 'Field Officer', password: 'field123' },
-    { email: 'rnd@biofactor.com', role: 'R&D Manager', password: 'rnd123' },
+    { email: 'finance@biofactor.com', role: 'Finance Officer', password: 'Finance@123' },
+    { email: 'hr@biofactor.com', role: 'HR Manager', password: 'Hr@123' },
+    { email: 'field@biofactor.com', role: 'Field Officer', password: 'Field@123' },
+    { email: 'rnd@biofactor.com', role: 'R&D Manager', password: 'Rnd@123' },
   ];
 
   return (
